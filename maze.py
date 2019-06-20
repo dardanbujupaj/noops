@@ -42,35 +42,65 @@ def isVertex(maze, x, y):
     return ((upBlocked != downBlocked) or (leftBlocked != rightBlocked) or
         not(rightBlocked or leftBlocked or upBlocked or downBlocked))
 
-called =  [0]
-def findPath(fromVertex, endVertex, preceedingVertices):
-    called[0] = called[0] + 1
-
-    if called[0] % 1000000 == 0:
-        print('called {0} times'.format(called))
-
-    newPreceedingVertices = list(preceedingVertices)
-    newPreceedingVertices.append(fromVertex)
-
-    if endVertex in fromVertex.incidents:
-        return fromVertex.incidents[endVertex]
-
-    for k, v in fromVertex.incidents.items():
-        if k in preceedingVertices:
-            continue
-
-        followingPath = findPath(k, endVertex, newPreceedingVertices)
-
-        if followingPath:
-            return v + followingPath
-
-    return None
-
-
+#called =  [0]
+#def findPath(fromVertex, endVertex, preceedingVertices):
+#    called[0] = called[0] + 1
+#
+#    if called[0] % 1000000 == 0:
+#        print('called {0} times'.format(called))
+#
+#    newPreceedingVertices = list(preceedingVertices)
+#    newPreceedingVertices.append(fromVertex)
+#
+#    if endVertex in fromVertex.incidents:
+#        return fromVertex.incidents[endVertex]
+#
+#    for k, v in fromVertex.incidents.items():
+#        if k in preceedingVertices:
+#            continue
+#
+#        followingPath = findPath(k, endVertex, newPreceedingVertices)
+#
+#        if followingPath:
+#            return v + followingPath
+#
+#    return None
 
 
+def findPathDijkstra(graph, fromVertex, toVertex):
+    # initialize dijkstra
+    q = list(graph.values())
+    distances = { v: 99999 for v in q }
+    preceeding = { v: None for v in q }
+    preceedingPath = { v: '' for v in q }
+    distances[toVertex] = 0
+
+    q.sort(key = lambda v: distances[v])
+
+    while q[0] != fromVertex:
+        v = q[0]
+        d = distances[v]
+        for incident, path in v.incidents.items():
+            # use reversed Path because where searching from end to start
+            reversedPath = incident.incidents[v]
+            if distances[incident] > d + len(path):
+                distances[incident] = d + len(path)
+                preceeding[incident] = v
+                preceedingPath[incident] = reversedPath
+
+        q.remove(v)
+        q.sort(key = lambda v: distances[v])
 
 
+    joinedPath = ''
+    nextVertex = fromVertex
+    while nextVertex != None:
+        joinedPath = joinedPath + preceedingPath[nextVertex]
+        nextVertex = preceeding[nextVertex]
+
+    print(len(joinedPath))
+
+    return joinedPath
 
 
 def solveMaze(maze):
@@ -183,20 +213,18 @@ def solveMaze(maze):
                 maze[y][x] = 'O'
             elif maze[y][x] == ' ':
                 maze[y][x] = '='
-        print(''.join(mazeRow))
+        # print(''.join(mazeRow))
 
 
     # list vertices and incidents)
-    for k, v in vertices.items():
-        print("vertex {0} has {1} incidents".format(v.pos, len(v.incidents)))
-        for ki, vi in v.incidents.items():
-            print("\t{0}: {1}".format(ki.pos, vi))
+    #for k, v in vertices.items():
+    #    print("vertex {0} has {1} incidents".format(v.pos, len(v.incidents)))
+    #    for ki, vi in v.incidents.items():
+    #        print("\t{0}: {1}".format(ki.pos, vi))
 
-    # TODO find paths
-    pathFinding = time.time()
-    path = findPath(start, end, [])
-    print('found pathin {0}ms'.format((time.time() - pathFinding) * 1000))
-    print('{0} calls'.format(called[0]))
+    dijkstraTime = time.time()
+    path = findPathDijkstra(vertices, start, end)
+    print('found path {0}ms'.format((time.time() - dijkstraTime) * 1000))
 
     print(path)
 
@@ -205,18 +233,94 @@ def solveMaze(maze):
 
 def checkSolution(maze, path):
     result = requests.post(baseUrl + maze['mazePath'], json.dumps({'directions': path}))
-    print(result)
-    if result.status_code == 200:
-        for k, v in result.json().items():
-            print('{0}: {1}'.format(k, v))
+    for k, v in result.json().items():
+        print('{0}: {1}'.format(k, v))
 
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+def plotMaze(maze, path, ax = plt):
+
+    grid = [[1 if e == 'X' else 0 for e in x] for x in maze['map']]
+
+    pos = maze['startingPosition']
+    grid[pos[1]][pos[0]] = 2
+
+    for d in path:
+        if d == 'N':
+            pos[1] = pos[1] - 1
+        if d == 'S':
+            pos[1] = pos[1] + 1
+        if d == 'W':
+            pos[0] = pos[0] - 1
+        if d == 'E':
+            pos[0] = pos[0] + 1
+
+        grid[pos[1]][pos[0]] = 2
+
+
+
+    ax.imshow(grid)
+    if ax == plt:
+        ax.show()
 
 
 def run():
-    maze = getMaze()
+    maze = getMaze(200)
 
     path = solveMaze(maze['map'])
+    plotMaze(maze, path)
 
     checkSolution(maze, path)
 
+def getRaceMaze(mazePath):
+    url = baseUrl + mazePath
+    print(url)
+    result = requests.get(url)
+    return result.json()
+
+def checkRaceMaze(maze, path):
+
+    result = requests.post(baseUrl + maze['mazePath'], json.dumps({'directions': path}))
+    j = result.json()
+    for k, v in j.items():
+        print('{0}: {1}'.format(k, v))
+    nextMaze = j.get('nextMaze')
+    if nextMaze:
+        return nextMaze
+    else:
+        certResult = requests.get(baseUrl + j.get('certificate'))
+        print('-----')
+        for k, v in certResult.json().items():
+            print('{0}: {1}'.format(k, v))
+        print('-----')
+
+def race():
+    # put login here to
+    login = None
+    raceUrl = baseUrl + '/mazebot/race/start'
+    payload = {'login': login}
+    print(raceUrl, payload)
+    result = requests.post(raceUrl, json.dumps(payload))
+
+    j = result.json()
+    for k, v in j.items():
+        print('{0}: {1}'.format(k, v))
+
+    nextMaze = j.get('nextMaze')
+    f, ax = plt.subplots(3, 4)
+    i = 0
+    while nextMaze:
+        maze = getRaceMaze(nextMaze)
+        path = solveMaze(maze['map'])
+        plotMaze(maze, path, ax.flatten()[i])
+        i = i + 1
+        nextMaze = checkRaceMaze(maze, path)
+
+    plt.show()
+
+
 run()
+# race()
